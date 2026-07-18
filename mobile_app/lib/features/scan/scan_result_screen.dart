@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../voice/voice_screen.dart';
 
 const Color kEmerald = Color(0xFF10B981);
 
@@ -167,6 +168,26 @@ class _ScanResultScreenState extends State<ScanResultScreen> {
             if (recFertilizers.isNotEmpty) _buildListCard("Recommended Fertilizers", recFertilizers, Icons.grass, kEmerald),
             if (recFertilizers.isNotEmpty) const SizedBox(height: 10),
             if (avoidFertilizers.isNotEmpty) _buildListCard("Avoid Fertilizers", avoidFertilizers, Icons.block, Colors.redAccent),
+            const SizedBox(height: 20),
+
+            // Action Buttons (Ask AI Crop Doctor with Disease Context)
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kEmerald,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => VoiceScreen(initialDisease: diseaseName),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white),
+              label: const Text("Ask AI Crop Doctor (सवाल पूछें)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+            ),
             const SizedBox(height: 20),
           ],
         ),

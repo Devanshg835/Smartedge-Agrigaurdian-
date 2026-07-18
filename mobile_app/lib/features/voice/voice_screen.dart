@@ -15,7 +15,9 @@ class ChatMessage {
 }
 
 class VoiceScreen extends StatefulWidget {
-  const VoiceScreen({super.key});
+  final String? initialDisease;
+
+  const VoiceScreen({super.key, this.initialDisease});
 
   @override
   State<VoiceScreen> createState() => _VoiceScreenState();
@@ -42,10 +44,14 @@ class _VoiceScreenState extends State<VoiceScreen> {
   @override
   void initState() {
     super.initState();
+    final diseaseContextStr = widget.initialDisease != null && widget.initialDisease!.isNotEmpty
+        ? " (वर्तमान फसल बीमारी: ${widget.initialDisease})"
+        : "";
+
     // Initial greeting message
     _messages.add(
       ChatMessage(
-        text: "नमस्ते किसान भाई! मैं आपका SmartEdge AI Crop Doctor हूँ। आप मुझसे अपनी फसल, बीमारी, खाद या छिड़काव से जुड़ा कोई भी सवाल पूछ सकते हैं।",
+        text: "नमस्ते किसान भाई! मैं आपका SmartEdge AI Crop Doctor हूँ$diseaseContextStr। आप मुझसे अपनी फसल, बीमारी, खाद या छिड़काव से जुड़ा कोई भी सवाल पूछ सकते हैं।",
         isUser: false,
       ),
     );
@@ -98,7 +104,10 @@ class _VoiceScreenState extends State<VoiceScreen> {
 
     _scrollToBottom();
 
-    final res = await ApiService.sendChatMessage(question: userQuery);
+    final res = await ApiService.sendChatMessage(
+      question: userQuery,
+      disease: widget.initialDisease,
+    );
     final reply = res["reply_hindi"] as String? ?? "क्षमा करें, उत्तर प्राप्त करने में समस्या आई।";
 
     setState(() {
@@ -160,6 +169,23 @@ class _VoiceScreenState extends State<VoiceScreen> {
       ),
       body: Column(
         children: [
+          // Active Disease Context Header (if available)
+          if (widget.initialDisease != null && widget.initialDisease!.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: kEmerald.withValues(alpha: 0.15),
+              child: Row(
+                children: [
+                  const Icon(Icons.coronavirus_outlined, color: kEmerald, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    "Context: ${widget.initialDisease}",
+                    style: const TextStyle(color: kEmerald, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+
           // Quick Suggestion Chips Horizontal Bar
           Container(
             height: 52,
