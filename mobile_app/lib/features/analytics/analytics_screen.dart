@@ -142,7 +142,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         BarChartData(
                           alignment: BarChartAlignment.spaceAround,
                           maxY: (_diseaseFrequency.values.isEmpty ? 5 : (_diseaseFrequency.values.reduce((a, b) => a > b ? a : b) + 1)).toDouble(),
-                          barTouchData: BarTouchDataEnabled(enabled: true),
+                          barTouchData: BarTouchData(enabled: true),
                           titlesData: FlTitlesData(
                             leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 28)),
                             bottomTitles: AxisTitles(
