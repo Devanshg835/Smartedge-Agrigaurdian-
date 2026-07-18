@@ -3,11 +3,12 @@ SmartEdge AgriGuardian - Knowledge Base Matcher
 =================================================
 Yeh module farmer ke query (text) ko knowledge_base.json se match karta hai.
 Agar match mil jaye -> structured solution return karta hai.
-Agar match na mile -> fallback signal deta hai (Gemini API call ke liye).
+Agar match na mile -> Ollama (local LLM) se fallback response generate hota hai.
 """
 
 import json
 import os
+import requests
 
 # ---------------------------------------------------
 # Step 1: Knowledge Base Load Karo
@@ -108,21 +109,95 @@ def build_response(matched_problem):
 
 
 # ---------------------------------------------------
-# Step 4: Main Handler Function (Yeh sabse important hai)
+# Step 4: Ollama Fallback (Jab Knowledge Base Mein Match Na Mile)
 # ---------------------------------------------------
 
-def get_advisory_response(user_query, crop_hint=None, kb_path="../knowledge-base/knowledge_base.json"):
+OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = "gemma2:2b"  # Same model jo tumne pull kiya hai
+
+
+def call_ollama(user_query, crop_hint=None, sensor_context=None):
+    """
+    Ollama (local LLM) ko call karta hai jab knowledge base mein
+    koi match nahi milta. Yeh poori tarah OFFLINE kaam karta hai
+    (koi internet nahi chahiye - Ollama laptop/PC pe hi chal raha hota hai).
+
+    Args:
+        user_query (str): Farmer ka original sawal
+        crop_hint (str, optional): Kis crop ke baare mein hai
+        sensor_context (dict, optional): Jaise {"moisture": 28, "temperature": 32}
+
+    Returns:
+        str: Ollama se generated response, ya error message agar Ollama chal nahi raha
+    """
+
+    # Prompt banate hain - jitna context denge, utna behtar jawab milega
+    context_parts = [f"Farmer ka sawal: {user_query}"]
+
+    if crop_hint:
+        context_parts.append(f"Crop: {crop_hint}")
+
+    if sensor_context:
+        sensor_str = ", ".join([f"{k}: {v}" for k, v in sensor_context.items()])
+        context_parts.append(f"Sensor data: {sensor_str}")
+
+    prompt = (
+        "Tum ek agriculture advisor ho jo Indian farmers ko madad karta hai. "
+        "Neeche diye gaye sawal ka practical, seedha aur farmer-friendly jawab do "
+        "Hindi-English mix (Hinglish) mein. Jawab short aur actionable rakho "
+        "(max 4-5 lines). Agar disease/pest ka zikar hai to organic aur chemical "
+        "dono treatment suggest karo.\n\n"
+        + "\n".join(context_parts)
+    )
+
+    try:
+        response = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+        result = response.json()
+        return result.get("response", "").strip()
+
+    except requests.exceptions.ConnectionError:
+        return (
+            "Ollama server nahi chal raha hai. Terminal mein 'ollama serve' "
+            "chalao ya Ollama app open karo, phir try karo."
+        )
+    except requests.exceptions.Timeout:
+        return "Ollama se response aane mein zyada time lag raha hai. Dobara try karo."
+    except Exception as e:
+        return f"Ollama call mein error aaya: {str(e)}"
+
+
+# ---------------------------------------------------
+# Step 5: Main Handler Function (Yeh sabse important hai)
+# ---------------------------------------------------
+
+def get_advisory_response(user_query, crop_hint=None, sensor_context=None,
+                            kb_path="../knowledge-base/knowledge_base.json"):
     """
     Yeh main function hai jo poora flow handle karta hai:
     1. Knowledge base load karo
     2. Best match dhoondo
-    3. Match mila -> structured response do
-    4. Match nahi mila -> fallback signal do (Gemini call trigger karne ke liye)
+    3. Match mila -> structured response do (fast, offline, free)
+    4. Match nahi mila -> Ollama (local LLM) se response generate karo (offline)
+
+    Args:
+        user_query (str): Farmer ka sawal
+        crop_hint (str, optional): Konsi crop hai
+        sensor_context (dict, optional): Live sensor data (moisture, temp, etc.)
+        kb_path (str): knowledge_base.json ka path
 
     Returns:
         dict: {
-            "source": "knowledge_base" ya "fallback_needed",
-            "response": str ya None,
+            "source": "knowledge_base" ya "ollama_fallback",
+            "response": str,
             "matched_id": str ya None
         }
     """
@@ -138,13 +213,12 @@ def get_advisory_response(user_query, crop_hint=None, kb_path="../knowledge-base
             "matched_id": match.get("id")
         }
     else:
-        # Match nahi mila -> Gemini API ko call karna hoga (yeh signal hai)
-        fallback_msg = kb.get("fallback", {}).get("message", "Match nahi mila.")
+        # Match nahi mila -> Ollama ko call karo (yeh bhi offline hi chalta hai)
+        ollama_response = call_ollama(user_query, crop_hint, sensor_context)
         return {
-            "source": "fallback_needed",
-            "response": None,
-            "matched_id": None,
-            "note": fallback_msg
+            "source": "ollama_fallback",
+            "response": ollama_response,
+            "matched_id": None
         }
 
 
@@ -174,5 +248,5 @@ if __name__ == "__main__":
             print(f"[MATCHED - ID: {result['matched_id']}]")
             print(result["response"])
         else:
-            print(f"[NO MATCH - Fallback needed]")
-            print(result["note"])
+            print(f"[OLLAMA FALLBACK - No KB match found]")
+            print(result["response"])
