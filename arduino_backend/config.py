@@ -8,6 +8,10 @@ To reconfigure the server (port, host, limits), change only this file.
 """
 
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # ── Flask Server ──────────────────────────────────────────────────────────────
 FLASK_HOST: str = os.getenv("FLASK_HOST", "0.0.0.0")

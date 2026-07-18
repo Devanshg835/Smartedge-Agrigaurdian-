@@ -107,27 +107,29 @@ Rain Probability: {weather_data.get('rain_probability', 0)}%
     }
 
     body = {
-        "model": "sarvam-2b",
+        "model": "sarvam-30b",
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt_context}
         ],
         "temperature": 0.3,
-        "max_tokens": 800
+        "max_tokens": 1500
     }
 
     try:
-        response = requests.post(SARVAM_API_URL, headers=headers, json=body, timeout=8)
+        response = requests.post(SARVAM_API_URL, headers=headers, json=body, timeout=12)
         if response.status_code == 200:
             res_json = response.json()
             choices = res_json.get("choices", [])
             if choices and "message" in choices[0]:
-                ai_text = choices[0]["message"]["content"]
-                return {
-                    "source": "sarvam_ai",
-                    "advisory_hindi": ai_text,
-                    "action_plan": action_plan
-                }
+                msg = choices[0]["message"]
+                ai_text = msg.get("content") or msg.get("reasoning_content")
+                if ai_text:
+                    return {
+                        "source": "sarvam_ai",
+                        "advisory_hindi": ai_text,
+                        "action_plan": action_plan
+                    }
     except Exception as exc:
         logger.warning(f"Sarvam AI call failed or timed out ({exc}). Falling back to Knowledge Base.")
 

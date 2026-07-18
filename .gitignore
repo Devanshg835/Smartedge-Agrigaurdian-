@@ -23,3 +23,8 @@ env/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Secrets & Environment variables
+.env
+*.env
+
