@@ -1,35 +1,61 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 
-/// API Service - handles all communication with the Python backend
-/// (kb_matcher.py + weather_advisor.py wrapped in app.py / Flask)
-///
-/// IMPORTANT: Update [baseUrl] below with your PC's local IP address.
-/// Find it by running `ipconfig` (Windows) on the PC running the backend,
-/// and look for "IPv4 Address" under your active WiFi adapter.
-/// The phone and PC must be on the same WiFi network / hotspot.
+/// API Service - Central communication handler connecting the Flutter mobile app
+/// to the Arduino UNO Q Python Central REST Server (port 5001).
 class ApiService {
-  // TODO: Replace with your PC's actual local IP address
-  static const String baseUrl = "http://10.92.212.144:5000";
+  // Replace with your Arduino UNO Q board / PC server IP address
+  static const String baseUrl = "http://10.92.212.144:5001";
+  static const Duration _timeout = Duration(seconds: 25);
 
-  static const Duration _timeout = Duration(seconds: 20);
+  /// 1. YOLO Leaf Disease Detection
+  /// Sends image multipart upload to POST /leaf/detect
+  static Future<Map<String, dynamic>> detectLeafDisease(File imageFile) async {
+    try {
+      final uri = Uri.parse("$baseUrl/leaf/detect");
+      final request = http.MultipartRequest("POST", uri);
 
-  /// Sends a farmer's query to the AI Crop Doctor / Voice Assistant backend.
-  /// Returns a map with keys: source, response, matched_id
-  static Future<Map<String, dynamic>> getAdvisory({
-    required String query,
-    String? cropHint,
-    Map<String, dynamic>? sensorContext,
+      request.files.add(
+        await http.MultipartFile.fromPath("image", imageFile.path),
+      );
+
+      final streamedResponse = await request.send().timeout(_timeout);
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      } else {
+        return {
+          "status": "error",
+          "message": "Server error: ${response.statusCode}",
+        };
+      }
+    } catch (e) {
+      return {
+        "status": "error",
+        "message": "Could not connect to Arduino UNO Q server: $e",
+      };
+    }
+  }
+
+  /// 2. AI Crop Doctor Advisory (Hindi Text + Action Plan)
+  /// Sends JSON to POST /ai/crop-doctor
+  static Future<Map<String, dynamic>> getCropDoctorAdvisory({
+    required String disease,
+    double confidence = 0.95,
+    String? question,
   }) async {
     try {
+      final uri = Uri.parse("$baseUrl/ai/crop-doctor");
       final response = await http
           .post(
-            Uri.parse("$baseUrl/advisory"),
+            uri,
             headers: {"Content-Type": "application/json"},
             body: jsonEncode({
-              "query": query,
-              if (cropHint != null) "crop_hint": cropHint,
-              if (sensorContext != null) "sensor_context": sensorContext,
+              "disease": disease,
+              "confidence": confidence,
+              if (question != null && question.isNotEmpty) "question": question,
             }),
           )
           .timeout(_timeout);
@@ -38,34 +64,63 @@ class ApiService {
         return jsonDecode(response.body) as Map<String, dynamic>;
       } else {
         return {
-          "source": "error",
-          "response": "Server error: ${response.statusCode}",
+          "status": "error",
+          "message": "Failed to get advisory: ${response.statusCode}",
         };
       }
     } catch (e) {
       return {
-        "source": "error",
-        "response":
-            "Could not reach the server. Make sure your phone and PC are "
-            "on the same WiFi network and the backend server is running.\n\nDetails: $e",
+        "status": "error",
+        "message": "Network error while fetching advisory: $e",
       };
     }
   }
 
-  /// Fetches the combined dashboard summary: weather + irrigation advice +
-  /// crop recommendation, based on current soil moisture reading.
-  static Future<Map<String, dynamic>?> getDashboardSummary({
-    required double moisture,
-    String city = "Ghaziabad",
+  /// 3. Interactive AI Chatbot Q&A
+  /// Sends JSON to POST /ai/chat
+  static Future<Map<String, dynamic>> sendChatMessage({
+    required String question,
+    String? disease,
   }) async {
     try {
-      final uri = Uri.parse(
-        "$baseUrl/dashboard?moisture=$moisture&city=$city",
-      );
-      final response = await http.get(uri).timeout(_timeout);
+      final uri = Uri.parse("$baseUrl/ai/chat");
+      final response = await http
+          .post(
+            uri,
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({
+              "question": question,
+              if (disease != null) "disease": disease,
+            }),
+          )
+          .timeout(_timeout);
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
+      } else {
+        return {
+          "status": "error",
+          "reply_hindi": "माफ़ कीजिये, सर्वर से जुड़ने में समस्या आई।",
+        };
+      }
+    } catch (e) {
+      return {
+        "status": "error",
+        "reply_hindi": "नेटवर्क समस्या: सर्वर तक पहुँच नहीं बन सकी।",
+      };
+    }
+  }
+
+  /// 4. Real-time Weather Indicators
+  /// Calls GET /ai/weather
+  static Future<Map<String, dynamic>?> getWeather() async {
+    try {
+      final uri = Uri.parse("$baseUrl/ai/weather");
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return data["weather"] as Map<String, dynamic>?;
       }
       return null;
     } catch (e) {
@@ -73,15 +128,20 @@ class ApiService {
     }
   }
 
-  /// Simple check to confirm the backend server is reachable.
-  static Future<bool> isServerReachable() async {
+  /// 5. Sensor Snapshot
+  /// Calls GET /sensor
+  static Future<Map<String, dynamic>?> getSensorData() async {
     try {
-      final response = await http
-          .get(Uri.parse(baseUrl))
-          .timeout(const Duration(seconds: 5));
-      return response.statusCode == 200;
+      final uri = Uri.parse("$baseUrl/sensor");
+      final response = await http.get(uri).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return data["readings"] as Map<String, dynamic>?;
+      }
+      return null;
     } catch (e) {
-      return false;
+      return null;
     }
   }
 }

@@ -99,16 +99,13 @@ def create_app() -> Flask:
     from modules.leaf_detection.routes import leaf_bp
     app.register_blueprint(leaf_bp, url_prefix="/leaf")
 
-    # Phase 6 — Sarvam AI:
-    #   from modules.sarvam_ai.routes import sarvam_bp
-    #   app.register_blueprint(sarvam_bp, url_prefix="/sarvam")
+    # Phase 6 & 7 — AI Crop Doctor, Sarvam AI, Knowledge Base, Weather:
+    from modules.ai.routes import ai_bp
+    app.register_blueprint(ai_bp, url_prefix="/ai")
 
-    # Phase 7 — Analytics:
-    #   from modules.analytics.routes import analytics_bp
-    #   app.register_blueprint(analytics_bp, url_prefix="/analytics")
-
-    logger.info("AgriGuardian app created — core blueprints: sensor, pump, system, leaf")
+    logger.info("AgriGuardian app created — core blueprints: sensor, pump, system, leaf, ai")
     return app
+
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
