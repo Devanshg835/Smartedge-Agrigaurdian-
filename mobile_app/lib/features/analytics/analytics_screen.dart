@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
 import '../../services/history_service.dart';
 
 const Color kEmerald = Color(0xFF10B981);
@@ -12,26 +13,47 @@ class AnalyticsScreen extends StatefulWidget {
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<Map<String, dynamic>> _history = [];
+  Map<String, int> _diseaseFrequency = {};
+  String _mostCommonDisease = "None";
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadHistory();
+    _loadAnalyticsData();
   }
 
-  Future<void> _loadHistory() async {
+  Future<void> _loadAnalyticsData() async {
     setState(() => _isLoading = true);
+
     final data = await HistoryService.getScanHistory();
+    final Map<String, int> freq = {};
+
+    for (final item in data) {
+      final String name = (item["disease_name"] ?? "Unknown").toString();
+      freq[name] = (freq[name] ?? 0) + 1;
+    }
+
+    String topDisease = "None";
+    int maxCount = 0;
+    freq.forEach((name, count) {
+      if (count > maxCount) {
+        maxCount = count;
+        topDisease = name;
+      }
+    });
+
     setState(() {
       _history = data;
+      _diseaseFrequency = freq;
+      _mostCommonDisease = topDisease;
       _isLoading = false;
     });
   }
 
   Future<void> _clearHistory() async {
     await HistoryService.clearHistory();
-    await _loadHistory();
+    await _loadAnalyticsData();
   }
 
   @override
@@ -62,22 +84,105 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Overview Cards
+                  // Overview Stat Cards
                   Row(
                     children: [
                       _buildStatCard("Total Scans", "$totalScans", Icons.center_focus_strong, Colors.blueAccent),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       _buildStatCard("Diseased", "$diseaseScans", Icons.warning_amber_rounded, Colors.orangeAccent),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       _buildStatCard("Healthy", "$healthyScans", Icons.check_circle_outline, kEmerald),
                     ],
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
 
-                  const Text(
-                    "Scan History & Timeline",
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  // Most Common Disease Card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E293B),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.insights_rounded, color: Colors.orangeAccent, size: 32),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text("Most Common Disease", style: TextStyle(color: Colors.white60, fontSize: 12)),
+                              const SizedBox(height: 4),
+                              Text(
+                                _mostCommonDisease,
+                                style: const TextStyle(color: Colors.orangeAccent, fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
+                  const SizedBox(height: 20),
+
+                  // Chart Section (fl_chart Bar Chart)
+                  if (_diseaseFrequency.isNotEmpty) ...[
+                    const Text("Disease Occurrence Chart", style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 12),
+                    Container(
+                      height: 220,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: BarChart(
+                        BarChartData(
+                          alignment: BarChartAlignment.spaceAround,
+                          maxY: (_diseaseFrequency.values.isEmpty ? 5 : (_diseaseFrequency.values.reduce((a, b) => a > b ? a : b) + 1)).toDouble(),
+                          barTouchData: BarTouchDataEnabled(enabled: true),
+                          titlesData: FlTitlesData(
+                            leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 28)),
+                            bottomTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                getTitlesWidget: (val, meta) {
+                                  final keys = _diseaseFrequency.keys.toList();
+                                  if (val.toInt() >= 0 && val.toInt() < keys.length) {
+                                    final shortName = keys[val.toInt()].split("_").first;
+                                    return Text(shortName, style: const TextStyle(color: Colors.white54, fontSize: 10));
+                                  }
+                                  return const Text("");
+                                },
+                              ),
+                            ),
+                            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          ),
+                          borderData: FlBorderData(show: false),
+                          barGroups: _diseaseFrequency.entries.toList().asMap().entries.map((e) {
+                            return BarChartGroupData(
+                              x: e.key,
+                              barRods: [
+                                BarChartRodData(
+                                  toY: e.value.value.toDouble(),
+                                  color: kEmerald,
+                                  width: 16,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ],
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+
+                  // Scan History & Timeline List
+                  const Text("Recent Scan Timeline", style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
 
                   if (_history.isEmpty)
@@ -89,9 +194,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       ),
                       child: const Center(
                         child: Text(
-                          "No scans recorded yet.\nScan crop leaves using the Scan tab to build your history.",
+                          "No scan history available.\nScan crop leaves using the Scan tab to populate analytics.",
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.white60, fontSize: 14),
+                          style: TextStyle(color: Colors.white60, fontSize: 13),
                         ),
                       ),
                     )
@@ -108,7 +213,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         final isHealthy = name.toString().toLowerCase().contains("healthy");
 
                         return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
+                          margin: const EdgeInsets.only(bottom: 10),
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
                             color: const Color(0xFF1E293B),
@@ -131,15 +236,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      name,
-                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      "Confidence: $conf% • $dateStr",
-                                      style: const TextStyle(color: Colors.white54, fontSize: 12),
-                                    ),
+                                    Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                                    const SizedBox(height: 2),
+                                    Text("Confidence: $conf% • $dateStr", style: const TextStyle(color: Colors.white54, fontSize: 12)),
                                   ],
                                 ),
                               ),
@@ -157,7 +256,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Widget _buildStatCard(String label, String value, IconData icon, Color color) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
         decoration: BoxDecoration(
           color: const Color(0xFF1E293B),
           borderRadius: BorderRadius.circular(14),
@@ -165,17 +264,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ),
         child: Column(
           children: [
-            Icon(icon, color: color, size: 24),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(color: Colors.white60, fontSize: 12),
-            ),
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 6),
+            Text(value, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 2),
+            Text(label, style: const TextStyle(color: Colors.white60, fontSize: 11)),
           ],
         ),
       ),

@@ -1,225 +1,271 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_theme.dart';
+import '../../services/api_service.dart';
+import '../../services/history_service.dart';
+import '../scan/scan_screen.dart';
+import '../voice/voice_screen.dart';
 
-/// Home Dashboard Screen
-/// Shows: Crop Health Score, Sensor Data, Weather Summary, Quick Alerts
-class HomeScreen extends StatelessWidget {
+const Color kEmerald = Color(0xFF10B981);
+
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  Map<String, dynamic>? _sensorData;
+  Map<String, dynamic>? _weatherData;
+  Map<String, dynamic>? _lastScanRecord;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDashboardData();
+  }
+
+  Future<void> _loadDashboardData() async {
+    setState(() => _isLoading = true);
+
+    final sensors = await ApiService.getSensorData();
+    final weather = await ApiService.getWeather();
+    final history = await HistoryService.getScanHistory();
+
+    setState(() {
+      _sensorData = sensors ?? {
+        "soil_moisture": 45.0,
+        "temperature": 28.5,
+        "humidity": 62.0,
+      };
+      _weatherData = weather;
+      _lastScanRecord = history.isNotEmpty ? history.first : null;
+      _isLoading = false;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // TODO: Replace with real data from backend (Arduino sensors + weather_advisor.py)
-    const double healthScore = 82;
-    const String moisture = "45%";
-    const String temperature = "29°C";
-    const String humidity = "60%";
+    final double moisture = ((_sensorData?["soil_moisture"] as num?) ?? 45.0).toDouble();
+    final double temp = ((_sensorData?["temperature"] as num?) ?? 28.5).toDouble();
+    final double humidity = ((_sensorData?["humidity"] as num?) ?? 62.0).toDouble();
 
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            const Text(
-              "Namaste, Devansh 🌾",
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              "Aapke khet ka aaj ka haal",
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
-            ),
-            const SizedBox(height: 20),
+    final lastDisease = _lastScanRecord?["disease_name"] ?? "No Recent Scans";
+    final lastConf = _lastScanRecord != null
+        ? (((_lastScanRecord!["confidence"] as num?) ?? 0.95) * 100).toStringAsFixed(1)
+        : "N/A";
+    final lastActionPlan = _lastScanRecord?["action_plan"] as Map<String, dynamic>?;
+    final todayTasks = List<String>.from(lastActionPlan?["today"] ?? ["Perform regular leaf scan"]);
 
-            // Crop Health Score Card
-            _buildHealthScoreCard(healthScore),
-            const SizedBox(height: 16),
-
-            // Sensor Data Row
-            Row(
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F172A),
+      body: SafeArea(
+        child: RefreshIndicator(
+          color: kEmerald,
+          onRefresh: _loadDashboardData,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: _buildSensorCard(
-                    icon: Icons.water_drop_rounded,
-                    label: "Moisture",
-                    value: moisture,
-                    color: AppColors.lightGreen,
-                  ),
+                // Header Banner
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Namaste, Kisan 🌾",
+                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          "SmartEdge AI Crop Health Dashboard",
+                          style: TextStyle(color: Colors.white60, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.refresh_rounded, color: kEmerald),
+                      onPressed: _loadDashboardData,
+                      tooltip: "Refresh Data",
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildSensorCard(
-                    icon: Icons.thermostat_rounded,
-                    label: "Temperature",
-                    value: temperature,
-                    color: AppColors.warning,
+                const SizedBox(height: 20),
+
+                if (_isLoading)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(32.0),
+                      child: CircularProgressIndicator(color: kEmerald),
+                    ),
+                  )
+                else ...[
+                  // 1. Disease Card & 2. Confidence Card Row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildCard(
+                          title: "Recent Disease",
+                          value: lastDisease,
+                          icon: Icons.bug_report_rounded,
+                          color: lastDisease.contains("Healthy") ? kEmerald : Colors.orangeAccent,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildCard(
+                          title: "Match Confidence",
+                          value: lastConf == "N/A" ? "N/A" : "$lastConf%",
+                          icon: Icons.verified_rounded,
+                          color: Colors.blueAccent,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildSensorCard(
-                    icon: Icons.air_rounded,
-                    label: "Humidity",
-                    value: humidity,
-                    color: AppColors.accentGreen,
+                  const SizedBox(height: 14),
+
+                  // 3. Treatment Card & 4. Action Plan Card
+                  _buildActionPlanCard(todayTasks),
+                  const SizedBox(height: 14),
+
+                  // 5. Weather Card
+                  _buildWeatherCard(),
+                  const SizedBox(height: 14),
+
+                  // 6. Sensor Card Row
+                  const Text("Arduino UNO Q Live Sensors", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildSensorMetric("Moisture", "$moisture%", Icons.water_drop_rounded, kEmerald),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildSensorMetric("Temperature", "$temp°C", Icons.thermostat_rounded, Colors.amber),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildSensorMetric("Humidity", "$humidity%", Icons.air_rounded, Colors.cyan),
+                      ),
+                    ],
                   ),
-                ),
+                  const SizedBox(height: 14),
+
+                  // 7. History Card & 8. AI Crop Doctor Quick Card
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kEmerald,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => const ScanScreen()),
+                            );
+                          },
+                          icon: const Icon(Icons.camera_alt_rounded, color: Colors.white),
+                          label: const Text("Scan Leaf", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: kEmerald),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => const VoiceScreen()),
+                            );
+                          },
+                          icon: const Icon(Icons.health_and_safety_rounded, color: kEmerald),
+                          label: const Text("AI Doctor", style: TextStyle(color: kEmerald, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
               ],
             ),
-            const SizedBox(height: 20),
-
-            // Weather + Irrigation Card
-            _buildWeatherCard(),
-            const SizedBox(height: 20),
-
-            // Quick Alerts
-            const Text(
-              "Quick Alerts",
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 10),
-            _buildAlertTile(
-              icon: Icons.water_drop_outlined,
-              text: "Aaj shaam irrigation ki zarurat hai",
-              severity: "medium",
-            ),
-            const SizedBox(height: 8),
-            _buildAlertTile(
-              icon: Icons.check_circle_outline,
-              text: "Koi disease detect nahi hua is hafte",
-              severity: "low",
-            ),
-
-            const SizedBox(height: 24),
-
-            // Quick Action Buttons
-            Row(
-              children: [
-                Expanded(
-                  child: _buildQuickActionButton(
-                    icon: Icons.camera_alt_rounded,
-                    label: "Scan Leaf",
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildQuickActionButton(
-                    icon: Icons.mic_rounded,
-                    label: "Ask AI",
-                  ),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildHealthScoreCard(double score) {
-    final Color scoreColor = AppTheme.getHealthColor(score);
-    final String statusText =
-        score >= 70 ? "Healthy" : (score >= 40 ? "Needs Attention" : "Critical");
-
+  Widget _buildCard({required String title, required String value, required IconData icon, required Color color}) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: scoreColor.withValues(alpha: 0.3), width: 1.5),
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Score circle
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: scoreColor.withValues(alpha: 0.15),
-              border: Border.all(color: scoreColor, width: 3),
-            ),
-            child: Center(
-              child: Text(
-                score.toInt().toString(),
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                  color: scoreColor,
-                ),
-              ),
-            ),
+          Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 6),
+              Text(title, style: const TextStyle(color: Colors.white60, fontSize: 12)),
+            ],
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  "Crop Health Score",
-                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  statusText,
-                  style: TextStyle(
-                    color: scoreColor,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  "Based on soil, weather & leaf data",
-                  style: TextStyle(color: AppColors.textMuted, fontSize: 12),
-                ),
-              ],
-            ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: color, fontSize: 15, fontWeight: FontWeight.bold),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSensorCard({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
+  Widget _buildActionPlanCard(List<String> tasks) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.cardBackground,
+        color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: kEmerald.withValues(alpha: 0.4)),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: color, size: 26),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
+          const Row(
+            children: [
+              Icon(Icons.today_rounded, color: kEmerald, size: 20),
+              SizedBox(width: 8),
+              Text("Today's Treatment & Action Plan", style: TextStyle(color: kEmerald, fontWeight: FontWeight.bold, fontSize: 15)),
+            ],
           ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
-            textAlign: TextAlign.center,
+          const SizedBox(height: 10),
+          ...tasks.map(
+            (t) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle_outline, color: kEmerald, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(t, style: const TextStyle(color: Colors.white, fontSize: 13))),
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -227,38 +273,28 @@ class HomeScreen extends StatelessWidget {
   }
 
   Widget _buildWeatherCard() {
+    final cond = _weatherData?["condition"] ?? "Clear / Fair Weather";
+    final temp = _weatherData?["temperature"] ?? 28.0;
+    final rainProb = _weatherData?["rain_probability"] ?? 0;
+
     return Container(
-      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppColors.primaryGreen.withValues(alpha: 0.3), AppColors.cardBackground],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.cloud_rounded, color: AppColors.accentGreen, size: 36),
+          const Icon(Icons.cloud_outlined, color: Colors.blueAccent, size: 36),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  "Aaj Baarish Ka Chance Kam Hai",
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
+                Text("Weather: $cond", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                 const SizedBox(height: 4),
-                const Text(
-                  "Irrigation Suggestion: Shaam 12 min paani do",
-                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                ),
+                Text("Temp: $temp°C • Rain Probability: $rainProb%", style: const TextStyle(color: Colors.white60, fontSize: 12)),
               ],
             ),
           ),
@@ -267,54 +303,20 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildAlertTile({
-    required IconData icon,
-    required String text,
-    required String severity,
-  }) {
-    Color color = severity == "high"
-        ? AppColors.danger
-        : severity == "medium"
-            ? AppColors.warning
-            : AppColors.healthy;
-
+  Widget _buildSensorMetric(String label, String value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.cardBackground,
+        color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(14),
-        border: Border(left: BorderSide(color: color, width: 4)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQuickActionButton({required IconData icon, required String label}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 18),
-      decoration: BoxDecoration(
-        color: AppColors.primaryGreen,
-        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         children: [
-          Icon(icon, color: Colors.white, size: 26),
+          Icon(icon, color: color, size: 22),
           const SizedBox(height: 6),
-          Text(
-            label,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-          ),
+          Text(value, style: TextStyle(color: color, fontSize: 15, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 2),
+          Text(label, style: const TextStyle(color: Colors.white54, fontSize: 11)),
         ],
       ),
     );

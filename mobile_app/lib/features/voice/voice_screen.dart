@@ -5,6 +5,15 @@ import '../../services/tts_service.dart';
 
 const Color kEmerald = Color(0xFF10B981);
 
+class ChatMessage {
+  final String text;
+  final bool isUser;
+  final DateTime timestamp;
+
+  ChatMessage({required this.text, required this.isUser, DateTime? timestamp})
+      : timestamp = timestamp ?? DateTime.now();
+}
+
 class VoiceScreen extends StatefulWidget {
   const VoiceScreen({super.key});
 
@@ -15,19 +24,32 @@ class VoiceScreen extends StatefulWidget {
 class _VoiceScreenState extends State<VoiceScreen> {
   final stt.SpeechToText _speech = stt.SpeechToText();
   final TextEditingController _textController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
+  final List<ChatMessage> _messages = [];
   bool _isListening = false;
-  bool _isProcessing = false;
-  String _recognizedText = "";
-  String _responseText = "";
+  bool _isThinking = false;
   bool _isSpeaking = false;
 
-  final List<String> _quickQueries = [
-    "खाद (Fertilizer) कब देनी चाहिए?",
-    "क्या आज सिंचाई (Irrigation) करनी चाहिए?",
-    "ऑर्गेनिक स्प्रे कौन सा सही है?",
-    "पास की फसल में बीमारी का कितना खतरा है?",
+  final List<String> _quickQuestions = [
+    "Kya spray karna chahiye?",
+    "Neem oil use kar sakta hu?",
+    "Kya fertilizer use karu?",
+    "Kal baarish hogi to spray karu?",
+    "Kya ye disease dusre paudhon me fail sakti hai?",
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Initial greeting message
+    _messages.add(
+      ChatMessage(
+        text: "नमस्ते किसान भाई! मैं आपका SmartEdge AI Crop Doctor हूँ। आप मुझसे अपनी फसल, बीमारी, खाद या छिड़काव से जुड़ा कोई भी सवाल पूछ सकते हैं।",
+        isUser: false,
+      ),
+    );
+  }
 
   Future<void> _startListening() async {
     bool available = await _speech.initialize(
@@ -42,20 +64,16 @@ class _VoiceScreenState extends State<VoiceScreen> {
     );
 
     if (available) {
-      setState(() {
-        _isListening = true;
-        _recognizedText = "";
-      });
+      setState(() => _isListening = true);
 
       _speech.listen(
         onResult: (result) {
           setState(() {
-            _recognizedText = result.recognizedWords;
-            _textController.text = _recognizedText;
+            _textController.text = result.recognizedWords;
           });
 
-          if (result.finalResult && _recognizedText.isNotEmpty) {
-            _sendQueryToBackend(_recognizedText);
+          if (result.finalResult && _textController.text.trim().isNotEmpty) {
+            _sendMessage(_textController.text.trim());
           }
         },
       );
@@ -67,29 +85,32 @@ class _VoiceScreenState extends State<VoiceScreen> {
     setState(() => _isListening = false);
   }
 
-  Future<void> _sendQueryToBackend(String query) async {
+  Future<void> _sendMessage(String query) async {
     if (query.trim().isEmpty) return;
 
-    setState(() {
-      _isProcessing = true;
-      _recognizedText = query;
-      _responseText = "";
-    });
-
-    final res = await ApiService.sendChatMessage(question: query);
-
-    final String reply = res["reply_hindi"] ?? "उत्तर प्राप्त नहीं हो सका।";
+    final userQuery = query.trim();
+    _textController.clear();
 
     setState(() {
-      _responseText = reply;
-      _isProcessing = false;
+      _messages.add(ChatMessage(text: userQuery, isUser: true));
+      _isThinking = true;
     });
 
-    // Speak reply in Hindi
-    _speakReply(reply);
+    _scrollToBottom();
+
+    final res = await ApiService.sendChatMessage(question: userQuery);
+    final reply = res["reply_hindi"] as String? ?? "क्षमा करें, उत्तर प्राप्त करने में समस्या आई।";
+
+    setState(() {
+      _isThinking = false;
+      _messages.add(ChatMessage(text: reply, isUser: false));
+    });
+
+    _scrollToBottom();
+    _speak(reply);
   }
 
-  void _speakReply(String text) async {
+  void _speak(String text) async {
     setState(() => _isSpeaking = true);
     await TTSService.speak(text);
     setState(() => _isSpeaking = false);
@@ -100,9 +121,22 @@ class _VoiceScreenState extends State<VoiceScreen> {
     setState(() => _isSpeaking = false);
   }
 
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
   @override
   void dispose() {
     _textController.dispose();
+    _scrollController.dispose();
     _speech.stop();
     TTSService.stop();
     super.dispose();
@@ -115,180 +149,196 @@ class _VoiceScreenState extends State<VoiceScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1E293B),
         title: const Text("AI Crop Doctor Chatbot", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        actions: [
+          IconButton(
+            icon: Icon(_isSpeaking ? Icons.stop_circle : Icons.volume_up_rounded, color: kEmerald),
+            onPressed: _isSpeaking ? _stopSpeech : null,
+            tooltip: "TTS Controls",
+          ),
+        ],
         elevation: 0,
       ),
       body: Column(
         children: [
-          // Suggestion Chips
+          // Quick Suggestion Chips Horizontal Bar
           Container(
-            height: 50,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            height: 52,
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+            color: const Color(0xFF1E293B),
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
-              itemCount: _quickQueries.length,
+              itemCount: _quickQuestions.length,
               itemBuilder: (context, idx) {
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: ActionChip(
-                    backgroundColor: const Color(0xFF1E293B),
+                    backgroundColor: const Color(0xFF0F172A),
                     side: BorderSide(color: kEmerald.withValues(alpha: 0.4)),
                     label: Text(
-                      _quickQueries[idx],
+                      _quickQuestions[idx],
                       style: const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
-                    onPressed: () {
-                      _textController.text = _quickQueries[idx];
-                      _sendQueryToBackend(_quickQueries[idx]);
-                    },
+                    onPressed: () => _sendMessage(_quickQuestions[idx]),
                   ),
                 );
               },
             ),
           ),
 
-          // Main Chat Area
+          // Messages List View
           Expanded(
-            child: SingleChildScrollView(
+            child: ListView.builder(
+              controller: _scrollController,
               padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  // Mic Indicator Circle
-                  GestureDetector(
-                    onTap: _isListening ? _stopListening : _startListening,
-                    child: Container(
-                      width: 90,
-                      height: 90,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _isListening ? Colors.redAccent : kEmerald,
-                        boxShadow: [
-                          BoxShadow(
-                            color: (_isListening ? Colors.redAccent : kEmerald).withValues(alpha: 0.4),
-                            blurRadius: 20,
-                            spreadRadius: 4,
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        _isListening ? Icons.mic_rounded : Icons.mic_none_rounded,
-                        size: 42,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    _isListening ? "Listening... बोलिये" : "Tap mic or type question below",
-                    style: const TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                  const SizedBox(height: 20),
+              itemCount: _messages.length + (_isThinking ? 1 : 0),
+              itemBuilder: (context, idx) {
+                if (idx == _messages.length && _isThinking) {
+                  return _buildThinkingIndicator();
+                }
 
-                  // User Question Bubble
-                  if (_recognizedText.isNotEmpty)
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Container(
-                        margin: const EdgeInsets.only(left: 40, bottom: 16),
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: kEmerald.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: kEmerald.withValues(alpha: 0.5)),
-                        ),
-                        child: Text(
-                          _recognizedText,
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
-                        ),
-                      ),
-                    ),
-
-                  // Thinking Indicator
-                  if (_isProcessing)
-                    const Padding(
-                      padding: EdgeInsets.all(20),
-                      child: Column(
-                        children: [
-                          CircularProgressIndicator(color: kEmerald),
-                          SizedBox(height: 10),
-                          Text("AI Crop Doctor सोच रहा है...", style: TextStyle(color: Colors.white70)),
-                        ],
-                      ),
-                    ),
-
-                  // AI Response Bubble
-                  if (_responseText.isNotEmpty && !_isProcessing)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: kEmerald.withValues(alpha: 0.3)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Row(
-                                children: [
-                                  Icon(Icons.health_and_safety_rounded, color: kEmerald, size: 20),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    "AI Crop Doctor (हिंदी)",
-                                    style: TextStyle(color: kEmerald, fontWeight: FontWeight.bold, fontSize: 15),
-                                  ),
-                                ],
-                              ),
-                              IconButton(
-                                icon: Icon(
-                                  _isSpeaking ? Icons.stop_circle : Icons.volume_up_rounded,
-                                  color: kEmerald,
-                                ),
-                                onPressed: _isSpeaking ? _stopSpeech : () => _speakReply(_responseText),
-                              ),
-                            ],
-                          ),
-                          const Divider(color: Colors.white12),
-                          Text(
-                            _responseText,
-                            style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.5),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
+                final msg = _messages[idx];
+                return _buildMessageBubble(msg);
+              },
             ),
           ),
 
-          // Text Input Bar
+          // Speech & Text Input Bar
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             color: const Color(0xFF1E293B),
             child: Row(
               children: [
+                // Mic Button
+                GestureDetector(
+                  onTap: _isListening ? _stopListening : _startListening,
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _isListening ? Colors.redAccent : kEmerald.withValues(alpha: 0.2),
+                      border: Border.all(color: _isListening ? Colors.redAccent : kEmerald),
+                    ),
+                    child: Icon(
+                      _isListening ? Icons.mic_rounded : Icons.mic_none_rounded,
+                      color: _isListening ? Colors.white : kEmerald,
+                      size: 24,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+
+                // Text Input
                 Expanded(
                   child: TextField(
                     controller: _textController,
                     style: const TextStyle(color: Colors.white),
                     decoration: const InputDecoration(
-                      hintText: "सवाल पूछें (e.g. खाद कब डालें?)...",
+                      hintText: "सवाल लिखें या माइक दबाएं...",
                       hintStyle: TextStyle(color: Colors.white38),
                       border: InputBorder.none,
                     ),
-                    onSubmitted: _sendQueryToBackend,
+                    onSubmitted: _sendMessage,
                   ),
                 ),
+
+                // Send Button
                 IconButton(
                   icon: const Icon(Icons.send_rounded, color: kEmerald),
-                  onPressed: () => _sendQueryToBackend(_textController.text),
+                  onPressed: () => _sendMessage(_textController.text),
                 ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMessageBubble(ChatMessage msg) {
+    return Align(
+      alignment: msg.isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        constraints: const BoxConstraints(maxWidth: 300),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: msg.isUser ? kEmerald.withValues(alpha: 0.2) : const Color(0xFF1E293B),
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(msg.isUser ? 16 : 0),
+            bottomRight: Radius.circular(msg.isUser ? 0 : 16),
+          ),
+          border: Border.all(
+            color: msg.isUser ? kEmerald.withValues(alpha: 0.5) : Colors.white12,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      msg.isUser ? Icons.person : Icons.health_and_safety_rounded,
+                      color: msg.isUser ? Colors.white70 : kEmerald,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      msg.isUser ? "You" : "AI Crop Doctor",
+                      style: TextStyle(
+                        color: msg.isUser ? Colors.white70 : kEmerald,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+                if (!msg.isUser)
+                  IconButton(
+                    icon: const Icon(Icons.volume_up_rounded, color: kEmerald, size: 18),
+                    onPressed: () => _speak(msg.text),
+                    constraints: const BoxConstraints(),
+                    padding: EdgeInsets.zero,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              msg.text,
+              style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThinkingIndicator() {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(color: kEmerald, strokeWidth: 2),
+            ),
+            SizedBox(width: 10),
+            Text("AI Crop Doctor सोच रहा है...", style: TextStyle(color: Colors.white70, fontSize: 13)),
+          ],
+        ),
       ),
     );
   }

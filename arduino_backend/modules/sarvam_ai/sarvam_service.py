@@ -6,9 +6,10 @@ File: modules/sarvam_ai/sarvam_service.py
 Connects to Sarvam AI to generate natural Hindi advisory responses for Indian farmers.
 Strictly adheres to system prompts:
   1. Never identifies diseases (YOLO does this).
-  2. Never contradicts the Knowledge Base ground truth.
-  3. Uses simple Hindi.
-  4. Provides offline fallback directly from knowledge_base.json if network is down.
+  2. Always trusts YOLO prediction.
+  3. Never contradicts the Knowledge Base ground truth.
+  4. Uses simple Hindi for Indian farmers.
+  5. Provides offline fallback directly from knowledge_base.json if network is down.
 """
 
 import os
@@ -22,15 +23,16 @@ logger = logging.getLogger(__name__)
 # Sarvam AI endpoint
 SARVAM_API_URL = "https://api.sarvam.ai/v1/chat/completions"
 
-SYSTEM_PROMPT = """You are SmartEdge AgriGuardian AI Crop Doctor.
+SYSTEM_PROMPT = """You are SmartEdge AI Crop Doctor.
 Rules:
-1. Never identify diseases. Disease identification is ALREADY completed by YOLO.
-2. Never contradict the detected disease or the provided Knowledge Base object.
-3. Always use the supplied Knowledge Base object as your primary source of truth.
-4. Do not hallucinate. If information is unavailable say "Information unavailable."
-5. Always explain in simple, warm Hindi suitable for Indian farmers (Kisan).
+1. Never identify diseases. Disease detection is already completed by YOLO.
+2. Always trust YOLO prediction.
+3. Use knowledge_base.json as the primary source. Never contradict the Knowledge Base.
+4. Never hallucinate. If information is unavailable say "Information unavailable."
+5. Always explain in simple Hindi. Explain like talking to an Indian farmer.
 6. Explain the Action Plan provided in the Knowledge Base (Today's Work, Next 3 Days, Next Week, Warning Signs, Recovery Time).
-7. Incorporate real-time sensor data (Soil moisture, Temp, Humidity) and Weather conditions to personalize watering and fertilizer advice.
+7. Use sensor values if available. Use weather if available.
+8. If internet is unavailable, respond only using knowledge_base.json.
 
 Always format your response cleanly in simple Hindi with bullet points.
 """
@@ -105,7 +107,7 @@ Rain Probability: {weather_data.get('rain_probability', 0)}%
     }
 
     body = {
-        "model": "sarvam-2b",  # Or default sarvam completion model
+        "model": "sarvam-2b",
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt_context}
@@ -179,12 +181,11 @@ def _build_offline_advisory(
 
     lines.append(f"\n🔄 **अनुमानित सुधार समय (Expected Recovery)**: {expected_recovery}")
     
-    # Add sensor / weather advice
     moisture = sensor_data.get("soil_moisture")
     if moisture is not None and isinstance(moisture, (int, float)):
         if moisture < 30:
-            lines.append("\n💧 **सिंचाई सलाह**: मिट्टी में नमी कम है ({moisture}%)। आज हल्की सिंचाई करें।")
+            lines.append(f"\n💧 **सिंचाई सलाह**: मिट्टी में नमी कम है ({moisture}%)। आज हल्की सिंचाई करें।")
         elif moisture > 80:
-            lines.append("\n🚫 **सिंचाई सलाह**: मिट्टी में अत्यधिक नमी है ({moisture}%)। सिंचाई तुरंत रोकें।")
+            lines.append(f"\n🚫 **सिंचाई सलाह**: मिट्टी में अत्यधिक नमी है ({moisture}%)। सिंचाई तुरंत रोकें।")
 
     return "\n".join(lines)
