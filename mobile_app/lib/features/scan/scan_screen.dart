@@ -109,7 +109,7 @@ class _ScanScreenState extends State<ScanScreen> {
         ),
         content: Text(
           "Detection confidence was ${(confidence * 100).toStringAsFixed(1)}%.\n\n"
-          "Low confidence. Please capture another image in good lighting.",
+          "Low confidence. Please capture another image.",
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [

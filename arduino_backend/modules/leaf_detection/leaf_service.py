@@ -121,7 +121,8 @@ def classify_leaf(image_bytes: bytes) -> Dict:
         logger.warning(f"Detection confidence ({top1_conf*100:.1f}%) below 70% gate. Returning warning.")
         return {
             "status": "low_confidence",
-            "message": "Low confidence. Please capture another image in better lighting.",
+            "message": "Low confidence. Please capture another image.",
+            "confidence": round(top1_conf, 4),
             "top_predictions": top3_predictions
         }
 

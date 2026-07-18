@@ -68,6 +68,16 @@ def detect_disease():
     # Run YOLO11 prediction service
     try:
         prediction = leaf_service.classify_leaf(image_bytes)
+        
+        if prediction.get("status") == "success":
+            disease_lbl = prediction.get("disease", "")
+            from modules.knowledge_base import kb_service
+            disease_info = kb_service.get_disease(disease_lbl)
+            if disease_info:
+                prediction["disease_info"] = disease_info
+                prediction["disease_name"] = disease_info.get("name", disease_lbl)
+                prediction["action_plan"] = disease_info.get("action_plan", {})
+                
         return jsonify(prediction), 200
 
     except ValueError as exc:
